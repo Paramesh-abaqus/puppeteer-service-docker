@@ -434,33 +434,31 @@ app.post('/pdf', async (req, res) => {
       <!-- LEFT -->
       <td style="text-align:left; vertical-align:middle;">
         <div style="font-size:11px;">
-          <span style="color:#6b7280; font-weight:500; margin-right:4px;">
-            User:
+          <span style="color:#6b7280; font-weight:550; margin-right:4px;">
+            Form Name: 
           </span>
-          <span style="color:#111; font-weight:600;">
-            ${headerInfo?.user || 'N/A'}
+           <span style="color:#6b7280; font-weight:500; margin-right:4px;">
+            ${headerInfo?.formName || 'N/A'}  
           </span>
-        </div>
-        <div style="font-size:10px; margin-top:2px;">
-          <span style="color:#6b7280; font-weight:500; margin-right:4px;">
-            Location:
+           <span style="color:#6b7280; font-weight:550; margin-right:4px;">
+            User: 
           </span>
-          <span style="color:#111;">
-            ${headerInfo?.location || 'N/A'}
+           <span style="color:#6b7280; font-weight:500; margin-right:4px;">
+            ${headerInfo?.user || 'N/A'} 
+          </span> <span style="color:#6b7280; font-weight:550; margin-right:4px;">
+            Time: 
           </span>
-      </div>
-      </td>
-
-      <!-- RIGHT -->
-      <td style="text-align:right; vertical-align:middle;">
-        <div style="font-size:9px; color:#6b7280;">
-          Submitted on
-        </div>
-        <div style="font-weight:500; color:#111; font-size:10px;">
-          ${headerInfo?.date || 'N/A'}
-        </div>
-      </td>
-
+            </span> <span style="color:#6b7280; font-weight:500; margin-right:4px;">
+            ${headerInfo?.date || 'N/A'} 
+          </span>
+            </span> <span style="color:#6b7280; font-weight:550; margin-right:4px;">
+            Location: 
+          </span>
+            </span> <span style="color:#6b7280; font-weight:500; margin-right:4px;">
+            ${headerInfo?.location || 'N/A'}    
+          </span>
+        </div>    
+        </td>
     </tr>
   </table>
 
