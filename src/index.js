@@ -209,7 +209,7 @@ app.post('/pdf', async (req, res) => {
       const data = fields[key];
       if (!data) continue;
 
-      if (data.startsWith('http://') || data.startsWith('https://')) {
+      if ((data.includes('amazonaws.com')) && (data.startsWith('http://') || data.startsWith('https://'))) {
         try {
           const response = await fetch(
             `${domainName}/track/mgt?page=displayS3Data&pageName=formDataDisplay`,
@@ -502,103 +502,104 @@ app.post('/pdf-batch', async (req, res) => {
        LOOP THROUGH EACH ITEM IN THE ARRAY
     ------------------------------------------------------- */
     for (let i = 0; i < batch.length; i++) {
-      const item = batch[i];
-      const { html, url, domainName, headerInfo = {}, fields = {} } = item;
+      try {
+        const item = batch[i];
+        const { html, url, domainName, headerInfo = {}, fields = {} } = item;
 
-      if (!html && !url) {
-        console.warn(`Item ${i} skipped: Missing html or url`);
-        continue; // Skip invalid items
-      }
+        if (!html && !url) {
+          console.warn(`Item ${i} skipped: Missing html or url`);
+          continue; // Skip invalid items
+        }
 
-      if (url && !validateUrl(url)) {
-        console.warn(`Item ${i} skipped: Invalid URL`);
-        continue;
-      }
+        if (url && !validateUrl(url)) {
+          console.warn(`Item ${i} skipped: Invalid URL`);
+          continue;
+        }
 
-      /* -------------------------------------------------------
-         FETCH BINARY DATA (SIGNATURES / FILE INPUTS)
-      ------------------------------------------------------- */
-      const fieldData = {};
-      for (const key of Object.keys(fields)) {
-        const data = fields[key];
-        if (!data) continue;
+        /* -------------------------------------------------------
+           FETCH BINARY DATA (SIGNATURES / FILE INPUTS)
+        ------------------------------------------------------- */
+        const fieldData = {};
+        for (const key of Object.keys(fields)) {
+          const data = fields[key];
+          if (!data) continue;
 
-        if (data.startsWith('http://') || data.startsWith('https://')) {
-          try {
-            const response = await fetch(
-              `${domainName}/track/mgt?page=displayS3Data&pageName=formDataDisplay`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-                },
-                body: new URLSearchParams({ txnID: data }).toString()
-              }
-            );
-            fieldData[key] = await response.text();
-          } catch (err) {
-            console.error(`Binary fetch failed for item ${i}, key: ${key}`, err);
-            fieldData[key] = null;
+          if ((data.includes('amazonaws.com')) && (data.startsWith('http://') || data.startsWith('https://'))) {
+            try {
+              const response = await fetch(
+                `${domainName}/track/mgt?page=displayS3Data&pageName=formDataDisplay`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                  },
+                  body: new URLSearchParams({ txnID: data }).toString()
+                }
+              );
+              fieldData[key] = await response.text();
+            } catch (err) {
+              console.error(`Binary fetch failed for item ${i}, key: ${key}`, err);
+              fieldData[key] = null;
+            }
           }
         }
-      }
 
-      /* -------------------------------------------------------
-         PROCESS PAGE
-      ------------------------------------------------------- */
-      const page = await browser.newPage();
-      page.on('console', msg => console.log(`PAGE ${i}:`, msg.text()));
+        /* -------------------------------------------------------
+           PROCESS PAGE
+        ------------------------------------------------------- */
+        const page = await browser.newPage();
+        page.on('console', msg => console.log(`PAGE ${i}:`, msg.text()));
 
-      if (url) {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      } else {
-        await page.setContent(html, { waitUntil: 'domcontentloaded' });
-      }
+        if (url) {
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        } else {
+          await page.setContent(html, { waitUntil: 'domcontentloaded' });
+        }
 
-      /* -------------------------------------------------------
-         WAIT FOR LOADERS / SPINNERS TO DISAPPEAR
-      ------------------------------------------------------- */
-      await page.evaluate(async () => {
-        const waitFor = (fn, timeout = 30000) =>
-          new Promise((resolve, reject) => {
-            const start = Date.now();
-            const timer = setInterval(() => {
-              if (fn()) {
-                clearInterval(timer);
-                resolve();
-              }
-              if (Date.now() - start > timeout) {
-                clearInterval(timer);
-                reject('Timeout waiting for UI');
-              }
-            }, 300);
+        /* -------------------------------------------------------
+           WAIT FOR LOADERS / SPINNERS TO DISAPPEAR
+        ------------------------------------------------------- */
+        await page.evaluate(async () => {
+          const waitFor = (fn, timeout = 30000) =>
+            new Promise((resolve, reject) => {
+              const start = Date.now();
+              const timer = setInterval(() => {
+                if (fn()) {
+                  clearInterval(timer);
+                  resolve();
+                }
+                if (Date.now() - start > timeout) {
+                  clearInterval(timer);
+                  reject('Timeout waiting for UI');
+                }
+              }, 300);
+            });
+
+          await waitFor(() => {
+            const spinner =
+              document.querySelector('.loading') ||
+              document.querySelector('.spinner') ||
+              document.querySelector('[class*="loading"]') ||
+              document.querySelector('[class*="spinner"]') ||
+              document.querySelector('[aria-busy="true"]');
+
+            return !spinner || spinner.offsetParent === null;
           });
-
-        await waitFor(() => {
-          const spinner =
-            document.querySelector('.loading') ||
-            document.querySelector('.spinner') ||
-            document.querySelector('[class*="loading"]') ||
-            document.querySelector('[class*="spinner"]') ||
-            document.querySelector('[aria-busy="true"]');
-
-          return !spinner || spinner.offsetParent === null;
         });
-      });
 
-      /* -------------------------------------------------------
-         LET UI STABILIZE
-      ------------------------------------------------------- */
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await page.evaluate(() => document.body.offsetHeight);
+        /* -------------------------------------------------------
+           LET UI STABILIZE
+        ------------------------------------------------------- */
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await page.evaluate(() => document.body.offsetHeight);
 
-      /* -------------------------------------------------------
-         PRINT CSS (CRITICAL)
-      ------------------------------------------------------- */
-      await page.emulateMediaType('print');
+        /* -------------------------------------------------------
+           PRINT CSS (CRITICAL)
+        ------------------------------------------------------- */
+        await page.emulateMediaType('print');
 
-      await page.addStyleTag({
-        content: `
+        await page.addStyleTag({
+          content: `
           body { margin:0; padding:0; background:white; }
           table { width:100%; border-collapse:collapse; page-break-inside:auto; }
           tr { page-break-inside:avoid; }
@@ -606,108 +607,108 @@ app.post('/pdf-batch', async (req, res) => {
           canvas { display:block; page-break-inside:avoid; }
           .loading, .spinner { display:none !important; }
         `
-      });
-
-      const PDF_MARGIN = 40;
-      const PAGE_WIDTH = 595 - 2 * PDF_MARGIN;
-      const PAGE_HEIGHT = 842 - 2 * PDF_MARGIN;
-
-      /* -------------------------------------------------------
-         FILL FIELDS + RENDER FILES & SIGNATURES
-      ------------------------------------------------------- */
-      await page.evaluate(async (fields, fieldData, PAGE_WIDTH, PAGE_HEIGHT) => {
-        const waitImage = (img, timeout = 15000) =>
-          new Promise(resolve => {
-            const done = () => resolve();
-            if (img.complete) return done();
-            const t = setTimeout(done, timeout);
-            img.onload = () => { clearTimeout(t); done(); };
-            img.onerror = () => { clearTimeout(t); done(); };
-          });
-
-        // Fill form fields
-        for (const [name, value] of Object.entries(fields)) {
-          const el = document.querySelector(`[name="${name}"]`) || document.getElementById(name);
-          if (!el) continue;
-
-          if (el.tagName === 'INPUT' && el.type === 'file') continue;
-
-          if (el.tagName === 'SELECT') {
-            el.innerHTML = `<option selected>${value}</option>`;
-          } else if (el.type === 'checkbox' || el.type === 'radio') {
-            el.checked = value === true || value === 'Yes' || value === 'true' || value === 'On' || value === 'on' || value === 'yes';
-          } else if (el.tagName === 'TEXTAREA') {
-            el.value = value ?? '';
-            el.innerHTML = value ?? '';
-            el.style.whiteSpace = 'pre-wrap';
-            el.style.wordBreak = 'break-word';
-            el.style.wordWrap = 'break-word';
-          } else if ('value' in el) {
-            el.value = value ?? '';
-          }
-        }
-
-        // File inputs → images
-        const fileInputs = [...document.querySelectorAll('input[type="file"]')];
-        for (const input of fileInputs) {
-          const key = input.name;
-          const data = fieldData[key];
-          if (!data || !data.startsWith('data:image')) continue;
-
-          input.style.display = 'none';
-
-          const img = new Image();
-          img.src = data;
-          await waitImage(img);
-
-          const scale = Math.min(1, PAGE_WIDTH / img.width);
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width * scale;
-          canvas.height = img.height * scale;
-
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          input.after(canvas);
-        }
-
-        // Signature canvases
-        const sigCanvases = [...document.querySelectorAll('canvas[name]')];
-        for (const canvas of sigCanvases) {
-          const key = canvas.getAttribute('name');
-          const data = fieldData[key];
-          if (!data) continue;
-
-          const img = new Image();
-          img.src = data;
-          await waitImage(img);
-
-          const ctx = canvas.getContext('2d');
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        }
-
-        // Fix textarea visibility
-        const textareas = document.querySelectorAll('textarea');
-        textareas.forEach(el => {
-          el.style.height = 'auto';
-          el.style.height = (el.scrollHeight) + 'px';
         });
 
-      }, fields, fieldData, PAGE_WIDTH, PAGE_HEIGHT);
+        const PDF_MARGIN = 40;
+        const PAGE_WIDTH = 595 - 2 * PDF_MARGIN;
+        const PAGE_HEIGHT = 842 - 2 * PDF_MARGIN;
 
-      /* -------------------------------------------------------
-         FINAL WAIT & GENERATE PDF BUFFER
-      ------------------------------------------------------- */
-      await new Promise(resolve => setTimeout(resolve, 500));
+        /* -------------------------------------------------------
+           FILL FIELDS + RENDER FILES & SIGNATURES
+        ------------------------------------------------------- */
+        await page.evaluate(async (fields, fieldData, PAGE_WIDTH, PAGE_HEIGHT) => {
+          const waitImage = (img, timeout = 15000) =>
+            new Promise(resolve => {
+              const done = () => resolve();
+              if (img.complete) return done();
+              const t = setTimeout(done, timeout);
+              img.onload = () => { clearTimeout(t); done(); };
+              img.onerror = () => { clearTimeout(t); done(); };
+            });
 
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        preferCSSPageSize: true,
-        margin: { top: '70px', bottom: '60px', left: '40px', right: '40px' },
-        displayHeaderFooter: true,
-        headerTemplate: `<div style="width:100%; font-family: Arial, sans-serif; font-size:10px; color:#333; padding:6px 40px; box-sizing:border-box;">
+          // Fill form fields
+          for (const [name, value] of Object.entries(fields)) {
+            const el = document.querySelector(`[name="${name}"]`) || document.getElementById(name);
+            if (!el) continue;
+
+            if (el.tagName === 'INPUT' && el.type === 'file') continue;
+
+            if (el.tagName === 'SELECT') {
+              el.innerHTML = `<option selected>${value}</option>`;
+            } else if (el.type === 'checkbox' || el.type === 'radio') {
+              el.checked = value === true || value === 'Yes' || value === 'true' || value === 'On' || value === 'on' || value === 'yes';
+            } else if (el.tagName === 'TEXTAREA') {
+              el.value = value ?? '';
+              el.innerHTML = value ?? '';
+              el.style.whiteSpace = 'pre-wrap';
+              el.style.wordBreak = 'break-word';
+              el.style.wordWrap = 'break-word';
+            } else if ('value' in el) {
+              el.value = value ?? '';
+            }
+          }
+
+          // File inputs → images
+          const fileInputs = [...document.querySelectorAll('input[type="file"]')];
+          for (const input of fileInputs) {
+            const key = input.name;
+            const data = fieldData[key];
+            if (!data || !data.startsWith('data:image')) continue;
+
+            input.style.display = 'none';
+
+            const img = new Image();
+            img.src = data;
+            await waitImage(img);
+
+            const scale = Math.min(1, PAGE_WIDTH / img.width);
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            input.after(canvas);
+          }
+
+          // Signature canvases
+          const sigCanvases = [...document.querySelectorAll('canvas[name]')];
+          for (const canvas of sigCanvases) {
+            const key = canvas.getAttribute('name');
+            const data = fieldData[key];
+            if (!data) continue;
+
+            const img = new Image();
+            img.src = data;
+            await waitImage(img);
+
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          }
+
+          // Fix textarea visibility
+          const textareas = document.querySelectorAll('textarea');
+          textareas.forEach(el => {
+            el.style.height = 'auto';
+            el.style.height = (el.scrollHeight) + 'px';
+          });
+
+        }, fields, fieldData, PAGE_WIDTH, PAGE_HEIGHT);
+
+        /* -------------------------------------------------------
+           FINAL WAIT & GENERATE PDF BUFFER
+        ------------------------------------------------------- */
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        const pdfBuffer = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          preferCSSPageSize: true,
+          margin: { top: '70px', bottom: '60px', left: '40px', right: '40px' },
+          displayHeaderFooter: true,
+          headerTemplate: `<div style="width:100%; font-family: Arial, sans-serif; font-size:10px; color:#333; padding:6px 40px; box-sizing:border-box;">
           <table style="width:100%; border-bottom:1px solid #e5e7eb; padding-bottom:6px;">
             <tr>
               <td style="text-align:left; vertical-align:middle;">
@@ -725,22 +726,26 @@ app.post('/pdf-batch', async (req, res) => {
             </tr>
           </table>
         </div>`,
-        footerTemplate: `
+          footerTemplate: `
           <div style="font-size:10px;width:100%;text-align:center;">
             Page <span class="pageNumber"></span> of <span class="totalPages"></span>
           </div>`
-      });
+        });
 
-      // Format a clean filename for the ZIP
-      const userName = (headerInfo?.user || `user-${i}`).replace(/[^a-z0-9]/gi, '_');
-      const formName = (headerInfo?.formName || `form`).replace(/[^a-z0-9]/gi, '_');
-      const filename = `${formName}_${userName}_${Date.now()}.pdf`;
+        // Format a clean filename for the ZIP
+        const userName = (headerInfo?.user || `user-${i}`).replace(/[^a-z0-9]/gi, '_');
+        const formName = (headerInfo?.formName || `form`).replace(/[^a-z0-9]/gi, '_');
+        const filename = `${formName}_${userName}_${Date.now()}.pdf`;
 
-      generatedPdfs.push({ filename, buffer: pdfBuffer });
+        generatedPdfs.push({ filename, buffer: pdfBuffer });
 
 
-      // Clean up page resources immediately after use
-      await page.close();
+        // Clean up page resources immediately after use
+        await page.close();
+      } catch (itemErr) {
+        console.error(`Error processing item ${i}:`, itemErr);
+        // Continue with next items even if one fails
+      }
     }
 
     /* -------------------------------------------------------
